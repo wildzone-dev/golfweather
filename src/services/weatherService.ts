@@ -185,8 +185,8 @@ export async function fetchDailyForecast(): Promise<DailyForecast[]> {
     const forecasts: DailyForecast[] = [];
     
     // Process Village Forecast (Days 0-2)
-    if (villData?.response?.header?.resultCode === '00') {
-      const items = villData?.response?.body?.items?.item || [];
+    if ((villData as any)?.response?.header?.resultCode === '00') {
+      const items = (villData as any)?.response?.body?.items?.item || [];
       const dailyMap: Record<string, any> = {};
 
       items.forEach((item: any) => {

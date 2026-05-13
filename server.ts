@@ -301,7 +301,7 @@ async function startServer() {
       const url = `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&date=${dateStr}&formatted=0`;
       
       const response = await fetch(url);
-      const data = await response.json();
+      const data = await response.json() as any;
 
       if (data.status === "OK") {
         const results = data.results;
