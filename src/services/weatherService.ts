@@ -189,7 +189,11 @@ export async function fetchDailyForecast(): Promise<DailyForecast[]> {
       } else {
         villData = JSON.parse(villText);
       }
-    } catch (e) {
+      if (villData?.proxyError && villData?.error === 'QUOTA_EXCEEDED') {
+        throw new Error('QUOTA_EXCEEDED');
+      }
+    } catch (e: any) {
+      if (e.message === 'QUOTA_EXCEEDED') throw e;
       console.error('Failed to parse village weather JSON');
     }
     
@@ -338,54 +342,44 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
 
     const [weatherRes, yesterdayRes, forecastRes, airRes, airFrcstPm10Res, airFrcstPm25Res, airFrcstO3Res, uvRes, versionRes, sunRes, greenRes] = responses;
 
-    const failed = responses.filter(r => !r.ok);
-    if (failed.length > 0) {
-      console.warn('Some RealTimeWeather APIs returned non-ok status codes:', 
-        failed.map(r => `${r.url.split('?')[0]}: ${r.status}`).join(', '));
-    }
-
-    const weatherText = await weatherRes.text();
-    const yesterdayText = await yesterdayRes.text();
-    const forecastText = await forecastRes.text();
-    const airText = await airRes.text();
-    const airFrcstPm10Text = await airFrcstPm10Res.text();
-    const airFrcstPm25Text = await airFrcstPm25Res.text();
-    const airFrcstO3Text = await airFrcstO3Res.text();
-    const uvText = await uvRes.text();
-    const versionText = await versionRes.text();
-    const sunText = await sunRes.text();
-    const greenText = await greenRes.text();
-
     let weatherData, yesterdayData, forecastData, airData, pm10FrcstData, pm25FrcstData, o3FrcstData, uvData, versionData, sunData, greenData;
-    
-    const safeParse = (text: string, label: string) => {
+
+    const parseJSON = async (response: Response, label: string) => {
+      const text = await response.text();
       try {
         if (!text || text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
            console.error(`API ${label} returned HTML instead of JSON:`, text.substring(0, 100));
            return { proxyError: true, error: "HTML_RETURNED" };
         }
-        return JSON.parse(text);
-      } catch (e) {
+        const data = JSON.parse(text);
+        if (data.proxyError && data.error === 'QUOTA_EXCEEDED') {
+           throw new Error('QUOTA_EXCEEDED');
+        }
+        return data;
+      } catch (e: any) {
+        if (e.message === 'QUOTA_EXCEEDED') throw e;
         console.error(`Failed to parse ${label} JSON:`, text.substring(0, 100));
         return { proxyError: true, error: "PARSE_ERROR" };
       }
     };
 
-    weatherData = safeParse(weatherText, 'weather');
-    yesterdayData = safeParse(yesterdayText, 'yesterday');
-    forecastData = safeParse(forecastText, 'forecast');
-    airData = safeParse(airText, 'air');
-    pm10FrcstData = safeParse(airFrcstPm10Text, 'pm10Frcst');
-    pm25FrcstData = safeParse(airFrcstPm25Text, 'pm25Frcst');
-    o3FrcstData = safeParse(airFrcstO3Text, 'o3Frcst');
-    uvData = safeParse(uvText, 'uv');
-    versionData = safeParse(versionText, 'version');
-    sunData = safeParse(sunText, 'sun');
-    greenData = safeParse(greenText, 'green');
+    weatherData = await parseJSON(weatherRes, 'weather');
+    yesterdayData = await parseJSON(yesterdayRes, 'yesterday');
+    forecastData = await parseJSON(forecastRes, 'forecast');
+    airData = await parseJSON(airRes, 'air');
+    pm10FrcstData = await parseJSON(airFrcstPm10Res, 'pm10Frcst');
+    pm25FrcstData = await parseJSON(airFrcstPm25Res, 'pm25Frcst');
+    o3FrcstData = await parseJSON(airFrcstO3Res, 'o3Frcst');
+    uvData = await parseJSON(uvRes, 'uv');
+    versionData = await parseJSON(versionRes, 'version');
+    sunData = await parseJSON(sunRes, 'sun');
+    greenData = await parseJSON(greenRes, 'green');
 
     // Log the error but don't crash, instead use a specific error that can be handled for fallback
     if (weatherData.proxyError || forecastData.proxyError || airData.proxyError) {
-      console.warn('API Proxy returned error:', weatherData.error || forecastData.error || airData.error);
+      const err = weatherData.error || forecastData.error || airData.error;
+      console.warn('API Proxy returned error:', err);
+      // QUOTA_EXCEEDED is now thrown by parseJSON
       throw new Error('API_SYNC_DELAY');
     }
 

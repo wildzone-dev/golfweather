@@ -1,15 +1,16 @@
 
-/// <reference types="@cloudflare/workers-types" />
-
-export const onRequest: PagesFunction = async (context) => {
+export const onRequest = async (context: any) => {
   const { request, env } = context;
   const url = new URL(request.url);
   const pathname = url.pathname;
 
+  // Exact or partial match logic
+  const path = pathname.replace(/\/$/, ""); // Remove trailing slash
+
   // Standard health check
-  if (pathname === "/api/health") {
+  if (path === "/api/health") {
     return new Response(JSON.stringify({ status: "ok", provider: "cloudflare" }), {
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json; charset=utf-8" }
     });
   }
 
@@ -66,14 +67,11 @@ export const onRequest: PagesFunction = async (context) => {
           fetchUrl = `${apiBase}?${searchParams.toString()}`;
         }
 
-        const response = await fetch(fetchUrl, {
-          headers: commonHeaders
-        });
-
+        const response = await fetch(fetchUrl, { headers: commonHeaders });
         const text = await response.text();
         lastStatus = response.status;
 
-        if (text.includes("LIMITED_NUMBER_OF_SERVICE_REQUESTS")) {
+        if (response.status === 429 || text.includes("LIMITED_NUMBER_OF_SERVICE_REQUESTS")) {
            throw new Error("QUOTA_EXCEEDED");
         }
 
@@ -84,6 +82,8 @@ export const onRequest: PagesFunction = async (context) => {
                              text.includes("INVALID_REQUEST_PARAMETER_ERROR") ||
                              text.includes("Unauthorized") ||
                              text.includes("FORBIDDEN") ||
+                             text.includes("API token") ||
+                             text.includes("Access Denied") ||
                              (text.includes("<returnReasonCode>") && !['00', '0', 'OK', '1'].includes(text.match(/<returnReasonCode>([^<]+)<\/returnReasonCode>/)?.[1] || ''));
 
         const isHttpAuthError = response.status === 403 || response.status === 401;
@@ -94,17 +94,34 @@ export const onRequest: PagesFunction = async (context) => {
         
         lastError = isHtml ? "HTML_RETURNED" : (isErrorInBody ? "Logic/Auth Error" : `HTTP ${response.status}`);
       } catch (error: any) {
+        if (error.message === "QUOTA_EXCEEDED") throw error;
         lastError = error.message;
       }
     }
     throw new Error(`All proxy attempts failed. Last status: ${lastStatus}. Error: ${lastError}`);
   };
 
+  const sendJSON = (data: string) => {
+    const trimmed = data.trim();
+    const isActuallyJSON = (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
+    
+    if (isActuallyJSON) {
+      return new Response(data, { 
+        headers: { "Content-Type": "application/json; charset=utf-8" } 
+      });
+    } else {
+      return new Response(JSON.stringify({ 
+        proxyError: true, 
+        error: "NON_JSON_RETURNED", 
+        debug: trimmed.substring(0, 100) 
+      }), { 
+        headers: { "Content-Type": "application/json; charset=utf-8" } 
+      });
+    }
+  };
+
   // Routing
   try {
-    // Exact or partial match logic
-    const path = pathname.replace(/\/$/, ""); // Remove trailing slash
-    
     if (path === "/api/proxy") {
       const targetUrl = url.searchParams.get("url");
       if (!targetUrl) return new Response(JSON.stringify({ error: "URL is required" }), { status: 400 });
@@ -115,26 +132,6 @@ export const onRequest: PagesFunction = async (context) => {
       if (contentType) headers.set("Content-Type", contentType);
       return new Response(data, { headers });
     }
-
-    const sendJSON = (data: string) => {
-      const trimmed = data.trim();
-      const isActuallyJSON = (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
-      
-      if (isActuallyJSON) {
-        return new Response(data, { 
-          headers: { "Content-Type": "application/json; charset=utf-8" } 
-        });
-      } else {
-        // Upstream returned XML or something else, but we promised JSON
-        return new Response(JSON.stringify({ 
-          proxyError: true, 
-          error: "NON_JSON_RETURNED", 
-          debug: trimmed.substring(0, 100) 
-        }), { 
-          headers: { "Content-Type": "application/json; charset=utf-8" } 
-        });
-      }
-    };
 
     if (path === "/api/weather/current") {
       const { nx, ny, baseDate, baseTime } = Object.fromEntries(url.searchParams);
@@ -205,9 +202,9 @@ export const onRequest: PagesFunction = async (context) => {
           const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
           return `${String(kstDate.getHours()).padStart(2, '0')}:${String(kstDate.getMinutes()).padStart(2, '0')}`;
         };
-        return new Response(JSON.stringify({ sunrise: toKST(results.sunrise), sunset: toKST(results.sunset) }), { headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ sunrise: toKST(results.sunrise), sunset: toKST(results.sunset) }), { headers: { "Content-Type": "application/json; charset=utf-8" } });
       }
-      return new Response(JSON.stringify({ sunrise: null, sunset: null }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ sunrise: null, sunset: null }), { headers: { "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (path === "/api/weather/uv") {
@@ -219,15 +216,21 @@ export const onRequest: PagesFunction = async (context) => {
         "http://apis.data.go.kr/1360000/LivingWthrIdxService/getUVIdxV5"
       ];
 
+      let lastUvError: any = null;
       for (const endpoint of endpoints) {
         try {
           const result = await fetchDataGoKr(endpoint, { areaNo: areaNo ?? "5113033000", time, dataType: "JSON" });
           return sendJSON(result.data);
-        } catch (e) {
+        } catch (e: any) {
+          lastUvError = e;
           continue;
         }
       }
-      return new Response(JSON.stringify({ proxyError: true, error: "UV_FETCH_FAILED" }), { headers: { "Content-Type": "application/json" }, status: 500 });
+      return new Response(JSON.stringify({ 
+        proxyError: true, 
+        error: (lastUvError?.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "UV_FETCH_FAILED"), 
+        detail: lastUvError?.message 
+      }), { headers: { "Content-Type": "application/json; charset=utf-8" }, status: 500 });
     }
 
     if (path === "/api/golf/green-speed") {
@@ -244,13 +247,21 @@ export const onRequest: PagesFunction = async (context) => {
       return sendJSON(data);
     }
 
-    // Default 404 for unknown /api/* routes
     return new Response(JSON.stringify({ error: "Endpoint not found", path: pathname }), { 
       status: 404, 
-      headers: { "Content-Type": "application/json" } 
+      headers: { "Content-Type": "application/json; charset=utf-8" } 
     });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: "Server error", detail: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+    if (error.message === "QUOTA_EXCEEDED") {
+      return new Response(JSON.stringify({ proxyError: true, error: "QUOTA_EXCEEDED", detail: error.message }), { 
+        status: 429, 
+        headers: { "Content-Type": "application/json; charset=utf-8" } 
+      });
+    }
+    return new Response(JSON.stringify({ error: "Server error", detail: error.message }), { 
+      status: 500, 
+      headers: { "Content-Type": "application/json; charset=utf-8" } 
+    });
   }
 };

@@ -133,6 +133,8 @@ async function startServer() {
                              text.includes("INVALID_REQUEST_PARAMETER_ERROR") ||
                              text.includes("Unauthorized") ||
                              text.includes("FORBIDDEN") ||
+                             text.includes("API token") ||
+                             text.includes("Access Denied") ||
                              (text.includes("<returnReasonCode>") && !['00', '0', 'OK', '1'].includes(text.match(/<returnReasonCode>([^<]+)<\/returnReasonCode>/)?.[1] || ''));
 
         const isHttpAuthError = response.status === 403 || response.status === 401;
@@ -145,7 +147,7 @@ async function startServer() {
         
         lastError = isErrorInBody ? "Logic/Auth Error" : `HTTP ${response.status}`;
         
-        if (text.includes("LIMITED_NUMBER_OF_SERVICE_REQUESTS")) {
+        if (response.status === 429 || text.includes("LIMITED_NUMBER_OF_SERVICE_REQUESTS")) {
            throw new Error("QUOTA_EXCEEDED");
         }
       } catch (error: any) {
@@ -184,7 +186,7 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] KMA Current Failed:", error.message);
-      res.json({ proxyError: true, error: "KMA_FETCH_FAILED" });
+      res.json({ proxyError: true, error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "KMA_FETCH_FAILED"), detail: error.message });
     }
   });
 
@@ -210,7 +212,7 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] KMA Forecast Failed:", error.message);
-      res.json({ proxyError: true, error: "KMA_FCST_FAILED" });
+      res.json({ proxyError: true, error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "KMA_FCST_FAILED"), detail: error.message });
     }
   });
 
@@ -235,7 +237,11 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] AirKorea Failed:", error.message);
-      res.json({ proxyError: true, error: "AIR_KOREA_FAILED" });
+      res.json({ 
+        proxyError: true, 
+        error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "AIR_KOREA_FAILED"),
+        detail: error.message
+      });
     }
   });
 
@@ -259,7 +265,11 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] AirKorea Forecast Failed:", error.message);
-      res.json({ proxyError: true, error: "AIR_KOREA_FCST_FAILED" });
+      res.json({ 
+        proxyError: true, 
+        error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "AIR_KOREA_FCST_FAILED"),
+        detail: error.message
+      });
     }
   });
 
@@ -286,7 +296,11 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] KMA Village Failed:", error.message);
-      res.json({ proxyError: true, error: "KMA_VILAGE_FCST_FAILED" });
+      res.json({ 
+        proxyError: true, 
+        error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "KMA_VILAGE_FCST_FAILED"),
+        detail: error.message
+      });
     }
   });
 
@@ -310,7 +324,11 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] KMA Version Failed:", error.message);
-      res.json({ proxyError: true, error: "KMA_VERSION_FAILED" });
+      res.json({ 
+        proxyError: true, 
+        error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "KMA_VERSION_FAILED"),
+        detail: error.message
+      });
     }
   });
 
@@ -442,7 +460,17 @@ async function startServer() {
             dataType: "JSON"
           }
         );
-        return res.json(JSON.parse(result.data));
+
+        const text = result.data.trim();
+        const isActuallyJSON = (text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'));
+        
+        if (isActuallyJSON) {
+          return res.json(JSON.parse(text));
+        } else {
+          console.warn(`[PROXY] UV Endpoint ${url} returned non-JSON: ${text.substring(0, 50)}`);
+          lastError = new Error("NON_JSON_RETURNED");
+          continue; // Try next endpoint
+        }
       } catch (error: any) {
         lastError = error;
         console.warn(`[PROXY] UV Endpoint ${url} Failed: ${error.message}`);

@@ -45,6 +45,7 @@ export default function App() {
   const [realTimeWeather, setRealTimeWeather] = useState<WeatherData | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => {
     const d = getKSTDate();
     // According to the table, API is available 10 minutes after generation every hour (00:10, 01:10...)
@@ -81,6 +82,9 @@ export default function App() {
     try {
       isFetching.current = true;
       console.log('Fetching live weather data...');
+      setFetchFailed(false);
+      setIsQuotaExceeded(false);
+
       const [liveData, forecastArray] = await Promise.all([
         fetchRealTimeWeather(),
         fetchDailyForecast()
@@ -110,12 +114,13 @@ export default function App() {
         const day = parseInt(liveData.baseDate.substring(6, 8));
         setLastUpdated(new Date(y, mon, day, h, m));
       }
-      setFetchFailed(false);
     } catch (error: any) {
       setFetchFailed(true);
       if (error.message === 'API_SYNC_DELAY') {
-        // Intentionally silent fallback in terms of console error, but set state
         console.warn('API is still in activation phase. Showing -- for live fields.');
+      } else if (error.message === 'QUOTA_EXCEEDED') {
+        console.error('API Quota Exceeded.');
+        setIsQuotaExceeded(true);
       } else {
         console.error('Weather update failed:', error);
       }
@@ -134,10 +139,17 @@ export default function App() {
 
   const getNullData = (date: number): WeatherData => {
     const mock = getWeatherData(date);
+    let condition = '연동 확인 중';
+    if (isQuotaExceeded) {
+      condition = '일일 할당량 초과';
+    } else if (fetchFailed) {
+      condition = '연동 실패';
+    }
+
     return {
       ...mock,
       temp: null,
-      condition: fetchFailed ? '연동 실패' : '연동 확인 중',
+      condition,
       humidity: null,
       windSpeed: null,
       windDirection: null,
@@ -649,17 +661,18 @@ function CurrentWeather({
             ) : (
               <div className="flex flex-col items-center">
                 {(() => {
-                  const dayFcst = data.forecast[0];
-                  if (dayFcst) {
-                    return (
-                      <div className="text-[48px] sm:text-[60px] font-bold tracking-tight leading-none text-gray-900">
-                        <span className="text-blue-500">{dayFcst.low}°</span>
-                        <span className="text-gray-300 mx-2">/</span>
-                        <span className="text-red-500">{dayFcst.high}°</span>
-                      </div>
-                    );
-                  }
-                  return <div className="text-[52px] sm:text-[64px] font-bold tracking-tight leading-none text-gray-200 animate-pulse">--°</div>;
+                  const isQuota = data.condition === '일일 할당량 초과';
+                  const isFailed = data.condition === '연동 실패';
+                  
+                  const icon = (isQuota || isFailed) ? <X className="w-12 h-12 text-red-400" /> : <div className="text-[52px] sm:text-[64px] font-bold tracking-tight leading-none text-gray-200 animate-pulse">--°</div>;
+      
+                  return (
+                    <div className="flex flex-col items-center">
+                      {icon}
+                      {isQuota && <span className="text-xs text-red-500 mt-2 font-bold bg-red-50 px-2 py-1 rounded-full border border-red-100">API 일일 할당량 초과</span>}
+                      {isFailed && !isQuota && <span className="text-xs text-red-400 mt-2 font-bold">API 연동 실패 (Key 확인)</span>}
+                    </div>
+                  );
                 })()}
               </div>
             )}
