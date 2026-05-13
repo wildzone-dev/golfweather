@@ -77,7 +77,9 @@ export const onRequest: PagesFunction = async (context) => {
            throw new Error("QUOTA_EXCEEDED");
         }
 
-        const isErrorInBody = text.includes("<returnAuthMsg>HTTP_ERROR</returnAuthMsg>") || 
+        const isHtml = text.trim().startsWith('<!doctype') || text.trim().startsWith('<html');
+        const isErrorInBody = isHtml || 
+                             text.includes("<returnAuthMsg>HTTP_ERROR</returnAuthMsg>") || 
                              text.includes("SERVICE_KEY_IS_NOT_REGISTERED_ERROR") ||
                              text.includes("INVALID_REQUEST_PARAMETER_ERROR") ||
                              text.includes("Unauthorized") ||
@@ -86,11 +88,11 @@ export const onRequest: PagesFunction = async (context) => {
 
         const isHttpAuthError = response.status === 403 || response.status === 401;
 
-        if (!isErrorInBody && !isHttpAuthError && text.trim().length > 20) {
+        if (!isErrorInBody && !isHttpAuthError && text.trim().length > 5) {
           return { data: text, status: response.status };
         }
         
-        lastError = isErrorInBody ? "Logic/Auth Error" : `HTTP ${response.status}`;
+        lastError = isHtml ? "HTML_RETURNED" : (isErrorInBody ? "Logic/Auth Error" : `HTTP ${response.status}`);
       } catch (error: any) {
         lastError = error.message;
       }
@@ -100,7 +102,10 @@ export const onRequest: PagesFunction = async (context) => {
 
   // Routing
   try {
-    if (pathname === "/api/proxy") {
+    // Exact or partial match logic
+    const path = pathname.replace(/\/$/, ""); // Remove trailing slash
+    
+    if (path === "/api/proxy") {
       const targetUrl = url.searchParams.get("url");
       if (!targetUrl) return new Response(JSON.stringify({ error: "URL is required" }), { status: 400 });
       const response = await fetch(targetUrl);
@@ -111,52 +116,81 @@ export const onRequest: PagesFunction = async (context) => {
       return new Response(data, { headers });
     }
 
-    if (pathname === "/api/weather/current") {
+    const sendJSON = (data: string) => {
+      const trimmed = data.trim();
+      const isActuallyJSON = (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
+      
+      if (isActuallyJSON) {
+        return new Response(data, { 
+          headers: { "Content-Type": "application/json; charset=utf-8" } 
+        });
+      } else {
+        // Upstream returned XML or something else, but we promised JSON
+        return new Response(JSON.stringify({ 
+          proxyError: true, 
+          error: "NON_JSON_RETURNED", 
+          debug: trimmed.substring(0, 100) 
+        }), { 
+          headers: { "Content-Type": "application/json; charset=utf-8" } 
+        });
+      }
+    };
+
+    if (path === "/api/weather/current") {
       const { nx, ny, baseDate, baseTime } = Object.fromEntries(url.searchParams);
       const result = await fetchDataGoKr(
         "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst",
         { numOfRows: "1000", pageNo: "1", base_date: baseDate, base_time: baseTime, nx, ny, dataType: "JSON" }
       );
-      return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(result.data);
     }
 
-    if (pathname === "/api/weather/forecast") {
+    if (path === "/api/weather/forecast") {
       const { nx, ny, baseDate, baseTime } = Object.fromEntries(url.searchParams);
       const result = await fetchDataGoKr(
         "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst",
         { numOfRows: "1000", pageNo: "1", base_date: baseDate, base_time: baseTime, nx, ny, dataType: "JSON" }
       );
-      return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(result.data);
     }
 
-    if (pathname === "/api/weather/air") {
+    if (path === "/api/weather/air") {
       const { stationName } = Object.fromEntries(url.searchParams);
       const result = await fetchDataGoKr(
         "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty",
         { returnType: "json", numOfRows: "1", pageNo: "1", stationName, dataTerm: "DAILY", ver: "1.3" }
       );
-      return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(result.data);
     }
 
-    if (pathname === "/api/weather/air-forecast") {
+    if (path === "/api/weather/air-forecast") {
       const { searchDate, informCode } = Object.fromEntries(url.searchParams);
       const result = await fetchDataGoKr(
         "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMinuDustFrcstDspth",
         { returnType: "json", numOfRows: "100", pageNo: "1", searchDate, informCode }
       );
-      return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(result.data);
     }
 
-    if (pathname === "/api/weather/village-forecast") {
+    if (path === "/api/weather/village-forecast") {
       const { nx, ny, baseDate, baseTime } = Object.fromEntries(url.searchParams);
       const result = await fetchDataGoKr(
         "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst",
         { numOfRows: "2000", pageNo: "1", base_date: baseDate, base_time: baseTime, nx, ny, dataType: "JSON" }
       );
-      return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(result.data);
     }
 
-    if (pathname === "/api/weather/sun") {
+    if (path === "/api/weather/version") {
+      const { ftype, basedatetime } = Object.fromEntries(url.searchParams);
+      const result = await fetchDataGoKr(
+        "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getFcstVersion",
+        { numOfRows: "1", pageNo: "1", ftype, basedatetime, dataType: "JSON" }
+      );
+      return sendJSON(result.data);
+    }
+
+    if (path === "/api/weather/sun") {
       const { locdate } = Object.fromEntries(url.searchParams);
       const lat = 37.3822;
       const lng = 127.8711;
@@ -176,7 +210,7 @@ export const onRequest: PagesFunction = async (context) => {
       return new Response(JSON.stringify({ sunrise: null, sunset: null }), { headers: { "Content-Type": "application/json" } });
     }
 
-    if (pathname === "/api/weather/uv") {
+    if (path === "/api/weather/uv") {
       const { areaNo, time } = Object.fromEntries(url.searchParams);
       const endpoints = [
         "http://apis.data.go.kr/1360000/LivingWthrIdxServiceV5/getUVIdxV5",
@@ -188,7 +222,7 @@ export const onRequest: PagesFunction = async (context) => {
       for (const endpoint of endpoints) {
         try {
           const result = await fetchDataGoKr(endpoint, { areaNo: areaNo ?? "5113033000", time, dataType: "JSON" });
-          return new Response(result.data, { headers: { "Content-Type": "application/json" } });
+          return sendJSON(result.data);
         } catch (e) {
           continue;
         }
@@ -196,7 +230,7 @@ export const onRequest: PagesFunction = async (context) => {
       return new Response(JSON.stringify({ proxyError: true, error: "UV_FETCH_FAILED" }), { headers: { "Content-Type": "application/json" }, status: 500 });
     }
 
-    if (pathname === "/api/golf/green-speed") {
+    if (path === "/api/golf/green-speed") {
       const baseUrl = "https://oapi.hdc-resort.com/golfapi/V1/golfcommon/companies";
       const params = "addAttr=M&bsnsCode=11&langTypeCode=KOR&propertyNo=61&systemId=HDCWINGS";
       const response = await fetch(`${baseUrl}?${params}`, {
@@ -207,11 +241,14 @@ export const onRequest: PagesFunction = async (context) => {
         }
       });
       const data = await response.text();
-      return new Response(data, { headers: { "Content-Type": "application/json" } });
+      return sendJSON(data);
     }
 
-    // Default 404
-    return new Response(JSON.stringify({ error: "Endpoint not found", path: pathname }), { status: 404, headers: { "Content-Type": "application/json" } });
+    // Default 404 for unknown /api/* routes
+    return new Response(JSON.stringify({ error: "Endpoint not found", path: pathname }), { 
+      status: 404, 
+      headers: { "Content-Type": "application/json" } 
+    });
 
   } catch (error: any) {
     return new Response(JSON.stringify({ error: "Server error", detail: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });

@@ -290,6 +290,30 @@ async function startServer() {
     }
   });
 
+  app.get("/api/weather/version", async (req, res) => {
+    const { ftype, basedatetime } = req.query;
+    try {
+      const result = await fetchDataGoKr(
+        "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getFcstVersion",
+        {
+          numOfRows: "1",
+          pageNo: "1",
+          ftype: ftype as string,
+          basedatetime: basedatetime as string,
+          dataType: "JSON"
+        }
+      );
+      try {
+        res.json(JSON.parse(result.data));
+      } catch (e) {
+        res.json({ proxyError: true, error: "KMA_VERSION_NON_JSON", debug: result.data.substring(0, 100) });
+      }
+    } catch (error: any) {
+      console.error("[PROXY] KMA Version Failed:", error.message);
+      res.json({ proxyError: true, error: "KMA_VERSION_FAILED" });
+    }
+  });
+
   app.get("/api/weather/sun", async (req, res) => {
     // Coordinates for Wonju Jijeong-myeon: 37.38, 127.87
     const lat = 37.3822;

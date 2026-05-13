@@ -181,7 +181,18 @@ export async function fetchDailyForecast(): Promise<DailyForecast[]> {
       console.warn('Village weather API returned non-ok status:', villRes.status);
     }
 
-    const villData = await villRes.json();
+    const villText = await villRes.text();
+    let villData: any = null;
+    try {
+      if (villText.trim().startsWith('<!doctype') || villText.trim().startsWith('<html')) {
+        console.error('Village weather API returned HTML instead of JSON');
+      } else {
+        villData = JSON.parse(villText);
+      }
+    } catch (e) {
+      console.error('Failed to parse village weather JSON');
+    }
+    
     const forecasts: DailyForecast[] = [];
     
     // Process Village Forecast (Days 0-2)
@@ -346,22 +357,31 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
     const greenText = await greenRes.text();
 
     let weatherData, yesterdayData, forecastData, airData, pm10FrcstData, pm25FrcstData, o3FrcstData, uvData, versionData, sunData, greenData;
-    try {
-      weatherData = JSON.parse(weatherText);
-      yesterdayData = JSON.parse(yesterdayText);
-      forecastData = JSON.parse(forecastText);
-      airData = JSON.parse(airText);
-      pm10FrcstData = JSON.parse(airFrcstPm10Text);
-      pm25FrcstData = JSON.parse(airFrcstPm25Text);
-      o3FrcstData = JSON.parse(airFrcstO3Text);
-      uvData = JSON.parse(uvText);
-      try { versionData = JSON.parse(versionText); } catch(e) { versionData = null; }
-      try { sunData = JSON.parse(sunText); } catch(e) { sunData = null; }
-      try { greenData = JSON.parse(greenText); } catch(e) { greenData = null; }
-    } catch (e) {
-      console.warn('Weather API response was not valid JSON. Likely key issue or service down.');
-      throw new Error('API_SYNC_DELAY');
-    }
+    
+    const safeParse = (text: string, label: string) => {
+      try {
+        if (!text || text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
+           console.error(`API ${label} returned HTML instead of JSON:`, text.substring(0, 100));
+           return { proxyError: true, error: "HTML_RETURNED" };
+        }
+        return JSON.parse(text);
+      } catch (e) {
+        console.error(`Failed to parse ${label} JSON:`, text.substring(0, 100));
+        return { proxyError: true, error: "PARSE_ERROR" };
+      }
+    };
+
+    weatherData = safeParse(weatherText, 'weather');
+    yesterdayData = safeParse(yesterdayText, 'yesterday');
+    forecastData = safeParse(forecastText, 'forecast');
+    airData = safeParse(airText, 'air');
+    pm10FrcstData = safeParse(airFrcstPm10Text, 'pm10Frcst');
+    pm25FrcstData = safeParse(airFrcstPm25Text, 'pm25Frcst');
+    o3FrcstData = safeParse(airFrcstO3Text, 'o3Frcst');
+    uvData = safeParse(uvText, 'uv');
+    versionData = safeParse(versionText, 'version');
+    sunData = safeParse(sunText, 'sun');
+    greenData = safeParse(greenText, 'green');
 
     // Log the error but don't crash, instead use a specific error that can be handled for fallback
     if (weatherData.proxyError || forecastData.proxyError || airData.proxyError) {
