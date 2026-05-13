@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;500;700&family=Noto+Sans+KR:wght@300;400;500;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Colors */
+  --color-surface: #fcf8f8;
+  --color-surface-dim: #ddd9d9;
+  --color-surface-bright: #fcf8f8;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f6f3f2;
+  --color-surface-container: #f1eded;
+  --color-surface-container-high: #ebe7e7;
+  --color-surface-container-highest: #e5e2e1;
+  --color-on-surface: #1c1b1b;
+  --color-on-surface-variant: #44474a;
+  --color-inverse-surface: #313030;
+  --color-inverse-on-surface: #f4f0ef;
+  --color-outline: #75777a;
+  --color-outline-variant: #c5c6ca;
+  --color-surface-tint: #5d5e61;
+  
+  --color-primary-brand: #17191b;
+  --color-on-primary-brand: #ffffff;
+  --color-primary-container-brand: #2c2e30;
+  --color-on-primary-container-brand: #949598;
+  --color-inverse-primary-brand: #c6c6c9;
+  
+  --color-secondary-brand: #5d6051;
+  --color-on-secondary-brand: #ffffff;
+  --color-secondary-container-brand: #dfe1ce;
+  --color-on-secondary-container-brand: #616455;
+  
+  --color-tertiary-brand: #1d1914;
+  --color-on-tertiary-brand: #ffffff;
+  --color-tertiary-container-brand: #322d28;
+  --color-on-tertiary-container-brand: #9c948d;
+  
+  --color-error-brand: #ba1a1a;
+  --color-on-error-brand: #ffffff;
+  --color-error-container-brand: #ffdad6;
+  --color-on-error-container-brand: #93000a;
+
+  /* Typography */
+  --font-sans: "Noto Sans", "Noto Sans KR", ui-sans-serif, system-ui, sans-serif;
+  
+  /* Custom Utilities based on design system */
+  --text-display-temp: 80px;
+  --text-display-temp--line-height: 80px;
+  --text-display-temp--font-weight: 300;
+  --text-display-temp--letter-spacing: -0.02em;
+
+  --text-headline-lg-brand: 32px;
+  --text-headline-lg-brand--line-height: 40px;
+  --text-headline-lg-brand--font-weight: 700;
+  --text-headline-lg-brand--letter-spacing: -0.01em;
+
+  --text-headline-md-brand: 24px;
+  --text-headline-md-brand--line-height: 32px;
+  --text-headline-md-brand--font-weight: 500;
+
+  --text-label-caps: 12px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--font-weight: 700;
+  --text-label-caps--letter-spacing: 0.05em;
+
+  --text-data-mono: 14px;
+  --text-data-mono--line-height: 20px;
+  --text-data-mono--font-weight: 500;
+
+  /* Spacing Units */
+  --spacing-container-padding: 20px;
+  --spacing-gutter: 12px;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans antialiased;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
