@@ -259,7 +259,11 @@ export const onRequest = async (context: any) => {
         headers: { "Content-Type": "application/json; charset=utf-8" } 
       });
     }
-    return new Response(JSON.stringify({ error: "Server error", detail: error.message }), { 
+    return new Response(JSON.stringify({ 
+      proxyError: true,
+      error: "SERVER_ERROR", 
+      detail: error.message 
+    }), { 
       status: 500, 
       headers: { "Content-Type": "application/json; charset=utf-8" } 
     });

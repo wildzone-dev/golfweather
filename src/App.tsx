@@ -46,6 +46,8 @@ export default function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [isAuthError, setIsAuthError] = useState(false);
+  const [isSyncDelay, setIsSyncDelay] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => {
     const d = getKSTDate();
     // According to the table, API is available 10 minutes after generation every hour (00:10, 01:10...)
@@ -84,6 +86,8 @@ export default function App() {
       console.log('Fetching live weather data...');
       setFetchFailed(false);
       setIsQuotaExceeded(false);
+      setIsAuthError(false);
+      setIsSyncDelay(false);
 
       const [liveData, forecastArray] = await Promise.all([
         fetchRealTimeWeather(),
@@ -118,11 +122,18 @@ export default function App() {
       setFetchFailed(true);
       if (error.message === 'API_SYNC_DELAY') {
         console.warn('API is still in activation phase. Showing -- for live fields.');
+        setIsSyncDelay(true);
       } else if (error.message === 'QUOTA_EXCEEDED') {
         console.error('API Quota Exceeded.');
         setIsQuotaExceeded(true);
+        setFetchFailed(true);
+      } else if (error.message === 'AUTH_ERROR') {
+        console.error('API Key/Auth Error.');
+        setIsAuthError(true);
+        setFetchFailed(true);
       } else {
         console.error('Weather update failed:', error);
+        setFetchFailed(true);
       }
     } finally {
       isFetching.current = false;
@@ -142,6 +153,10 @@ export default function App() {
     let condition = '연동 확인 중';
     if (isQuotaExceeded) {
       condition = '일일 할당량 초과';
+    } else if (isAuthError) {
+      condition = '인증 오류';
+    } else if (isSyncDelay) {
+       condition = '데이터 연동 중';
     } else if (fetchFailed) {
       condition = '연동 실패';
     }
@@ -662,15 +677,20 @@ function CurrentWeather({
               <div className="flex flex-col items-center">
                 {(() => {
                   const isQuota = data.condition === '일일 할당량 초과';
+                  const isAuth = data.condition === '인증 오류';
+                  const isSync = data.condition === '데이터 연동 중';
                   const isFailed = data.condition === '연동 실패';
                   
-                  const icon = (isQuota || isFailed) ? <X className="w-12 h-12 text-red-400" /> : <div className="text-[52px] sm:text-[64px] font-bold tracking-tight leading-none text-gray-200 animate-pulse">--°</div>;
+                  const showX = isQuota || isAuth || isFailed;
+                  const icon = showX ? <X className="w-12 h-12 text-red-400" /> : <div className="text-[52px] sm:text-[64px] font-bold tracking-tight leading-none text-gray-200 animate-pulse">--°</div>;
       
                   return (
                     <div className="flex flex-col items-center">
                       {icon}
                       {isQuota && <span className="text-xs text-red-500 mt-2 font-bold bg-red-50 px-2 py-1 rounded-full border border-red-100">API 일일 할당량 초과</span>}
-                      {isFailed && !isQuota && <span className="text-xs text-red-400 mt-2 font-bold">API 연동 실패 (Key 확인)</span>}
+                      {isAuth && <span className="text-xs text-red-600 mt-2 font-bold p-2 bg-red-50 rounded-lg">API 키 확인 필요 (인증 오류)</span>}
+                      {isSync && <span className="text-xs text-blue-400 mt-2 font-medium animate-pulse tracking-tight">수집 중 (기상청 동기화 지연)</span>}
+                      {isFailed && !isQuota && !isAuth && <span className="text-xs text-red-400 mt-2 font-bold">API 연동 실패 (통신 확인)</span>}
                     </div>
                   );
                 })()}

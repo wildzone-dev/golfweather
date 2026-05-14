@@ -34,7 +34,7 @@ async function startServer() {
       res.send(response.data);
     } catch (error: any) {
       console.error("Proxy error:", error.message);
-      res.status(500).json({ error: "Failed to fetch from remote API" });
+      res.status(500).json({ proxyError: true, error: "PROXY_FAILED", detail: error.message });
     }
   });
 
@@ -390,7 +390,7 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] Mid Land Failed:", error.message);
-      res.json({ proxyError: true, error: "MID_LAND_FAILED" });
+      res.json({ proxyError: true, error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "MID_LAND_FAILED"), detail: error.message });
     }
   });
 
@@ -415,7 +415,7 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("[PROXY] Mid Temp Failed:", error.message);
-      res.json({ proxyError: true, error: "MID_TEMP_FAILED" });
+      res.json({ proxyError: true, error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "MID_TEMP_FAILED"), detail: error.message });
     }
   });
 
@@ -432,9 +432,13 @@ async function startServer() {
           dataType: "JSON"
         }
       );
-      res.json(JSON.parse(result.data));
+      try {
+        res.json(JSON.parse(result.data));
+      } catch (e) {
+         res.json({ proxyError: true, error: "KMA_VER_NON_JSON", debug: result.data.substring(0, 100) });
+      }
     } catch (error: any) {
-      res.json({ proxyError: true, error: "KMA_VER_FAILED" });
+      res.json({ proxyError: true, error: (error.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : "KMA_VER_FAILED"), detail: error.message });
     }
   });
 

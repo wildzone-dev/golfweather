@@ -352,12 +352,15 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
            return { proxyError: true, error: "HTML_RETURNED" };
         }
         const data = JSON.parse(text);
-        if (data.proxyError && data.error === 'QUOTA_EXCEEDED') {
-           throw new Error('QUOTA_EXCEEDED');
+        if (data.proxyError) {
+          if (data.error === 'QUOTA_EXCEEDED') throw new Error('QUOTA_EXCEEDED');
+          if (data.error === 'Logic/Auth Error' || (data.detail && (data.detail.includes('SERVICE_KEY') || data.detail.includes('Unauthorized') || data.detail.includes('Auth Error')))) {
+            throw new Error('AUTH_ERROR');
+          }
         }
         return data;
       } catch (e: any) {
-        if (e.message === 'QUOTA_EXCEEDED') throw e;
+        if (e.message === 'QUOTA_EXCEEDED' || e.message === 'AUTH_ERROR') throw e;
         console.error(`Failed to parse ${label} JSON:`, text.substring(0, 100));
         return { proxyError: true, error: "PARSE_ERROR" };
       }
