@@ -149,12 +149,13 @@ export async function fetchDailyForecast(): Promise<DailyForecast[]> {
                  String(kst.getMonth() + 1).padStart(2, '0') + 
                  String(kst.getDate()).padStart(2, '0');
   
-  // Village forecast for days 0-2
+  // Village forecast for days 0-2: Announcements at 02, 05, 08... available 10m later.
+  // Using 25m threshold for safer sync.
   const hours = [2, 5, 8, 11, 14, 17, 20, 23];
   const currentHour = kst.getHours();
   let baseHour = 2;
   for (const h of hours) {
-    if (currentHour > h || (currentHour === h && kst.getMinutes() > 15)) {
+    if (currentHour > h || (currentHour === h && kst.getMinutes() > 25)) {
       baseHour = h;
     } else {
       break;
@@ -162,7 +163,7 @@ export async function fetchDailyForecast(): Promise<DailyForecast[]> {
   }
   
   let adjustedBaseDate = baseDate;
-  if (currentHour < 2 || (currentHour === 2 && kst.getMinutes() <= 15)) {
+  if (currentHour < 2 || (currentHour === 2 && kst.getMinutes() <= 25)) {
      const yesterday = new Date(kst);
      yesterday.setDate(yesterday.getDate() - 1);
      adjustedBaseDate = yesterday.getFullYear() + 
@@ -271,8 +272,9 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
   // Observation (UltraSrtNcst) logic from the provided table:
   // Base_time is generated every hour (0000, 0100...)
   // API is available 10 minutes after generation (00:10, 01:10...)
+  // Increased threshold to 18 minutes for safer sync
   const obsTime = new Date(kst);
-  if (obsTime.getMinutes() < 10) {
+  if (obsTime.getMinutes() < 18) {
     obsTime.setHours(obsTime.getHours() - 1);
   }
   
@@ -289,9 +291,10 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
   const obsBaseTime = String(obsTime.getHours()).padStart(2, '0') + '00';
 
   // Forecast (UltraSrtFcst) logic:
-  // Announcement every hour at minute 30.
+  // Announcement every hour at minute 30. Available at 45.
+  // Increased threshold to 50 minutes for safer sync.
   const fcstTime = new Date(kst);
-  if (fcstTime.getMinutes() < 45) {
+  if (fcstTime.getMinutes() < 50) {
     fcstTime.setHours(fcstTime.getHours() - 1);
   }
   const fcstBaseTime = String(fcstTime.getHours()).padStart(2, '0') + '30';
@@ -379,10 +382,10 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
     greenData = await parseJSON(greenRes, 'green');
 
     // Log the error but don't crash, instead use a specific error that can be handled for fallback
-    if (weatherData.proxyError || forecastData.proxyError || airData.proxyError) {
-      const err = weatherData.error || forecastData.error || airData.error;
-      console.warn('API Proxy returned error:', err);
-      // QUOTA_EXCEEDED is now thrown by parseJSON
+    // Air/UV failures are not critical enough to show full sync delay
+    if (weatherData.proxyError || forecastData.proxyError) {
+      const err = weatherData.error || forecastData.error;
+      console.warn('Critical Weather API Proxy returned error:', err);
       throw new Error('API_SYNC_DELAY');
     }
 
@@ -393,7 +396,10 @@ export async function fetchRealTimeWeather(): Promise<RealTimeWeather> {
     if (weatherResultCode !== '00' || forecastResultCode !== '00') {
       console.warn('KMA API Error Code:', weatherResultCode, forecastResultCode);
       // If NO_DATA (03), maybe it's too early.
-      throw new Error('API_SYNC_DELAY');
+      if (weatherResultCode === '03' || forecastResultCode === '03') {
+         throw new Error('API_SYNC_DELAY');
+      }
+      // Other errors might be auth or permanent
     }
 
     const weatherItems = weatherData?.response?.body?.items?.item;
